@@ -1634,7 +1634,8 @@ class TrackingThread:
         raise DeprecationWarning('Frequncy now controlled by the camera')
 
     @frequency.setter
-    def frequency(self, freq_hz):
+    @staticmethod1638    
+    def frequency(freq_hz):
         raise DeprecationWarning('Frequncy now controlled by the camera')
 
     @property
