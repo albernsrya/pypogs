@@ -27,29 +27,32 @@ License:
     limitations under the License.
 """
 
+import logging
+from csv import writer as csv_write
 # Standard imports:
 from pathlib import Path
-import logging
 from threading import Thread
-from csv import writer as csv_write
 
 # External imports:
 import numpy as np
+from astropy import coordinates as apy_coord
+from astropy import units as apy_unit
+from astropy import utils as apy_util
 from astropy.time import Time as apy_time
-from astropy import units as apy_unit, coordinates as apy_coord, utils as apy_util
-from skyfield import sgp4lib as sgp4
 from skyfield import api as sf_api
+from skyfield import sgp4lib as sgp4
 from tifffile import imwrite as tiff_write
 
 # Internal imports:
 from tetra3 import Tetra3
+
 from .hardware import Camera, Mount, Receiver
-from .tracking import TrackingThread, ControlLoopThread
+from .tracking import ControlLoopThread, TrackingThread
 
 # Useful definitions:
 EPS = 10**-6  # Epsilon for use in non-zero check
 DEG = chr(176)  # Degree (unicode) character
-_system_data_dir = Path(__file__).parent / '_system_data'
+_system_data_dir = Path(__file__).parent / "_system_data"
 if not _system_data_dir.exists():
     _system_data_dir.mkdir()
 
@@ -177,7 +180,6 @@ class System:
         debug_folder (pathlib.Path, optional): The folder for debug logging. If None (the default)
             the folder *pypogs*/debug will be used/created.
     """
-
     @staticmethod
     def update_databases():
         """Download and update Skyfield and Astropy databases (of earth rotation)."""
@@ -189,10 +191,10 @@ class System:
         # Logger setup
         self._debug_folder = None
         if debug_folder is None:
-            self.debug_folder = Path(__file__).parent / 'debug'
+            self.debug_folder = Path(__file__).parent / "debug"
         else:
             self.debug_folder = debug_folder
-        self._logger = logging.getLogger('pypogs.system.System')
+        self._logger = logging.getLogger("pypogs.system.System")
         if not self._logger.hasHandlers():
             # Add new handlers to the logger if there are none
             self._logger.setLevel(logging.DEBUG)
@@ -200,27 +202,29 @@ class System:
             ch = logging.StreamHandler()
             ch.setLevel(logging.INFO)
             # File handler at DEBUG level
-            fh = logging.FileHandler(self.debug_folder / 'pypogs.txt')
+            fh = logging.FileHandler(self.debug_folder / "pypogs.txt")
             fh.setLevel(logging.DEBUG)
             # Format and add
-            formatter = logging.Formatter('%(asctime)s:%(name)s-%(levelname)s: %(message)s')
+            formatter = logging.Formatter(
+                "%(asctime)s:%(name)s-%(levelname)s: %(message)s")
             fh.setFormatter(formatter)
             ch.setFormatter(formatter)
             self._logger.addHandler(fh)
             self._logger.addHandler(ch)
 
         # Start of constructor
-        self._logger.debug('System constructor called')
+        self._logger.debug("System constructor called")
         # Data folder setup
         self._data_folder = None
         if data_folder is None:
-            self.data_folder = Path(__file__).parent / 'data'
+            self.data_folder = Path(__file__).parent / "data"
         else:
             self.data_folder = data_folder
         # Threads
         self._coarse_track_thread = None
         self._fine_track_thread = None
-        self._control_loop_thread = ControlLoopThread(self)  # Create the control loop thread
+        self._control_loop_thread = ControlLoopThread(
+            self)  # Create the control loop thread
         # Hardware not managed by threads
         self._star_cam = None
         self._receiver = None
@@ -232,130 +236,131 @@ class System:
         self._thread = None
         import atexit
         import weakref
+
         atexit.register(weakref.ref(self.__del__))
-        self._logger.info('System instance created.')
+        self._logger.info("System instance created.")
 
     def __del__(self):
         """Destructor. Calls deinitialize()."""
         try:
-            self._logger.debug('System destructor called')
+            self._logger.debug("System destructor called")
         except BaseException:
             pass
         try:
             self.deinitialize()
-            self._logger.debug('Deinitialised')
+            self._logger.debug("Deinitialised")
         except BaseException:
             pass
 
     def initialize(self):
         """Initialise cameras, mount, and receiver if they are not already."""
-        self._logger.debug('Initialise called')
+        self._logger.debug("Initialise called")
         if self.star_camera is not None:
-            self._logger.debug('Has star cam')
+            self._logger.debug("Has star cam")
             if not self.star_camera.is_init:
                 try:
                     self.star_camera.initialize()
-                    self._logger.debug('Initialised')
+                    self._logger.debug("Initialised")
                 except BaseException:
-                    self._logger.warning('Failed to init', exc_info=True)
+                    self._logger.warning("Failed to init", exc_info=True)
             else:
-                self._logger.debug('Already initialised')
+                self._logger.debug("Already initialised")
         if self.coarse_camera is not None:
-            self._logger.debug('Has coarse cam')
+            self._logger.debug("Has coarse cam")
             if not self.coarse_camera.is_init:
                 try:
                     self.coarse_camera.initialize()
-                    self._logger.debug('Initialised')
+                    self._logger.debug("Initialised")
                 except BaseException:
-                    self._logger.warning('Failed to init', exc_info=True)
+                    self._logger.warning("Failed to init", exc_info=True)
             else:
-                self._logger.debug('Already initialised')
+                self._logger.debug("Already initialised")
         if self.fine_camera is not None:
-            self._logger.debug('Has coarse cam')
+            self._logger.debug("Has coarse cam")
             if not self.fine_camera.is_init:
                 try:
                     self.fine_camera.initialize()
-                    self._logger.debug('Initialised')
+                    self._logger.debug("Initialised")
                 except BaseException:
-                    self._logger.warning('Failed to init', exc_info=True)
+                    self._logger.warning("Failed to init", exc_info=True)
             else:
-                self._logger.debug('Already initialised')
+                self._logger.debug("Already initialised")
         if self.mount is not None:
-            self._logger.debug('Has mount')
+            self._logger.debug("Has mount")
             if not self.mount.is_init:
                 try:
                     self.mount.initialize()
-                    self._logger.debug('Initialised')
+                    self._logger.debug("Initialised")
                 except BaseException:
-                    self._logger.warning('Failed to init', exc_info=True)
+                    self._logger.warning("Failed to init", exc_info=True)
             else:
-                self._logger.debug('Already initialised')
+                self._logger.debug("Already initialised")
         if self.receiver is not None:
-            self._logger.debug('Has receiver')
+            self._logger.debug("Has receiver")
             if not self.receiver.is_init:
                 try:
                     self.receiver.initialize()
-                    self._logger.debug('Initialised')
+                    self._logger.debug("Initialised")
                 except BaseException:
-                    self._logger.warning('Failed to init', exc_info=True)
+                    self._logger.warning("Failed to init", exc_info=True)
             else:
-                self._logger.debug('Already initialised')
-        self._logger.info('System initialised')
+                self._logger.debug("Already initialised")
+        self._logger.info("System initialised")
 
     def deinitialize(self):
         """Deinitialise camera, mount, and receiver if they are initialised."""
-        self._logger.debug('Deinitialise called')
+        self._logger.debug("Deinitialise called")
         if self.star_camera is not None:
-            self._logger.debug('Has star cam')
+            self._logger.debug("Has star cam")
             if self.star_camera.is_init:
                 try:
                     self.star_camera.deinitialize()
-                    self._logger.debug('Deinitialised')
+                    self._logger.debug("Deinitialised")
                 except BaseException:
-                    self._logger.warning('Failed to deinit', exc_info=True)
+                    self._logger.warning("Failed to deinit", exc_info=True)
             else:
-                self._logger.debug('Not initialised')
+                self._logger.debug("Not initialised")
         if self.coarse_camera is not None:
-            self._logger.debug('Has coarse cam')
+            self._logger.debug("Has coarse cam")
             if self.coarse_camera.is_init:
                 try:
                     self.coarse_camera.deinitialize()
-                    self._logger.debug('Deinitialised')
+                    self._logger.debug("Deinitialised")
                 except BaseException:
-                    self._logger.warning('Failed to deinit', exc_info=True)
+                    self._logger.warning("Failed to deinit", exc_info=True)
             else:
-                self._logger.debug('Not initialised')
+                self._logger.debug("Not initialised")
         if self.fine_camera is not None:
-            self._logger.debug('Has coarse cam')
+            self._logger.debug("Has coarse cam")
             if self.fine_camera.is_init:
                 try:
                     self.fine_camera.deinitialize()
-                    self._logger.debug('Deinitialised')
+                    self._logger.debug("Deinitialised")
                 except BaseException:
-                    self._logger.warning('Failed to deinit', exc_info=True)
+                    self._logger.warning("Failed to deinit", exc_info=True)
             else:
-                self._logger.debug('Not initialised')
+                self._logger.debug("Not initialised")
         if self.mount is not None:
-            self._logger.debug('Has mount')
+            self._logger.debug("Has mount")
             if self.mount.is_init:
                 try:
                     self.mount.deinitialize()
-                    self._logger.debug('Deinitialised')
+                    self._logger.debug("Deinitialised")
                 except BaseException:
-                    self._logger.warning('Failed to deinit', exc_info=True)
+                    self._logger.warning("Failed to deinit", exc_info=True)
             else:
-                self._logger.debug('Not initialised')
+                self._logger.debug("Not initialised")
         if self.receiver is not None:
-            self._logger.debug('Has receiver')
+            self._logger.debug("Has receiver")
             if self.receiver.is_init:
                 try:
                     self.receiver.deinitialize()
-                    self._logger.debug('Deinitialised')
+                    self._logger.debug("Deinitialised")
                 except BaseException:
-                    self._logger.warning('Failed to deinit', exc_info=True)
+                    self._logger.warning("Failed to deinit", exc_info=True)
             else:
-                self._logger.debug('Not initialised')
-        self._logger.info('System deinitialised')
+                self._logger.debug("Not initialised")
+        self._logger.info("System deinitialised")
 
     @property
     def is_init(self):
@@ -379,7 +384,8 @@ class System:
         """bool: Returns True if system is doing some control task."""
         if self._thread is not None and self._thread.is_alive():
             return True
-        if self._control_loop_thread is not None and self._control_loop_thread.is_running:
+        if (self._control_loop_thread is not None
+                and self._control_loop_thread.is_running):
             return True
         if self.mount is not None and self.mount.is_moving:
             return True
@@ -387,31 +393,29 @@ class System:
 
     @property
     def data_folder(self):
-        """pathlib.Path: Get or set the path for data saving. Will create folder if not existing.
-        """
+        """pathlib.Path: Get or set the path for data saving. Will create folder if not existing."""
         return self._data_folder
 
     @data_folder.setter
     def data_folder(self, path):
-        assert isinstance(path, Path), 'Must be pathlib.Path object'
-        self._logger.debug('Got set data folder with: '+str(path))
+        assert isinstance(path, Path), "Must be pathlib.Path object"
+        self._logger.debug("Got set data folder with: " + str(path))
         if path.is_file():
             path = path.parent
         if not path.is_dir():
             path.mkdir(parents=True)
         self._data_folder = path
-        self._logger.debug('Set data folder to: '+str(self._data_folder))
+        self._logger.debug("Set data folder to: " + str(self._data_folder))
 
     @property
     def debug_folder(self):
-        """pathlib.Path: Get or set the path for debug logging. Will create folder if not existing.
-        """
+        """pathlib.Path: Get or set the path for debug logging. Will create folder if not existing."""
         return self._debug_folder
 
     @debug_folder.setter
     def debug_folder(self, path):
         # Do not do logging in here! This will be called before the logger is set up
-        assert isinstance(path, Path), 'Must be pathlib.Path object'
+        assert isinstance(path, Path), "Must be pathlib.Path object"
         if path.is_file():
             path = path.parent
         if not path.is_dir():
@@ -440,22 +444,26 @@ class System:
 
     @star_camera.setter
     def star_camera(self, cam):
-        self._logger.debug('Got set star camera with: '+str(cam))
+        self._logger.debug("Got set star camera with: " + str(cam))
         if self.star_camera is not None:
-            self._logger.debug('Already have a star camera, try to clear it')
+            self._logger.debug("Already have a star camera, try to clear it")
             try:
                 self.star_camera.deinitialize()
-                self._logger.debug('Deinit')
+                self._logger.debug("Deinit")
             except BaseException:
-                self._logger.debug('Failed to deinit', exc_info=True)
+                self._logger.debug("Failed to deinit", exc_info=True)
             self._star_cam = None
-            self._logger.debug('Cleared')
+            self._logger.debug("Cleared")
         if cam is not None:
-            assert isinstance(cam, Camera), 'Must be pypogs.Camera'
+            assert isinstance(cam, Camera), "Must be pypogs.Camera"
             self._star_cam = cam
-        self._logger.debug('Star camera set to: ' + str(self.star_camera))
+        self._logger.debug("Star camera set to: " + str(self.star_camera))
 
-    def add_star_camera(self, model=None, identity=None, name='StarCamera', auto_init=True):
+    def add_star_camera(self,
+                        model=None,
+                        identity=None,
+                        name="StarCamera",
+                        auto_init=True):
         """Create and set the star camera. Calls pypogs.Camera constructor with
         name='StarCamera' and the given arguments.
 
@@ -469,24 +477,31 @@ class System:
                 Camera and auto_init is True (the default), Camera.initialize() will be called
                 after creation.
         """
-        self._logger.debug('Got add star camera with model=' + str(model)
-                           + ' identity='+str(identity) + ' auto_init=' + str(auto_init))
+        self._logger.debug("Got add star camera with model=" + str(model) +
+                           " identity=" + str(identity) + " auto_init=" +
+                           str(auto_init))
         if self.star_camera is not None:
-            self._logger.debug('Already have a star camera with model='
-                               + str(self.star_camera.model)
-                               + ' identity=' + str(self.star_camera.identity))
-            if self.star_camera.model == model and self.star_camera.identity == identity:
-                self._logger.debug('Already attached, just set the name')
+            self._logger.debug("Already have a star camera with model=" +
+                               str(self.star_camera.model) + " identity=" +
+                               str(self.star_camera.identity))
+            if (self.star_camera.model == model
+                    and self.star_camera.identity == identity):
+                self._logger.debug("Already attached, just set the name")
                 self.star_camera.name = name
             else:
-                self._logger.debug('Got a different camera, clear the old one')
+                self._logger.debug("Got a different camera, clear the old one")
                 self.star_camera = None
-                self._logger.debug('Create new camera')
-                self.star_camera = Camera(model=model, identity=identity, name=name,
+                self._logger.debug("Create new camera")
+                self.star_camera = Camera(model=model,
+                                          identity=identity,
+                                          name=name,
                                           auto_init=auto_init)
         else:
-            self._logger.debug('Dont have anything old to clean up, create new camera')
-            self.star_camera = Camera(model=model, identity=identity, name=name,
+            self._logger.debug(
+                "Dont have anything old to clean up, create new camera")
+            self.star_camera = Camera(model=model,
+                                      identity=identity,
+                                      name=name,
                                       auto_init=auto_init)
         return self.star_camera
 
@@ -496,7 +511,8 @@ class System:
             self.star_camera = self.coarse_camera
             return self.star_camera
         except BaseException:
-            self._logger.debug('Could not link star from coarse: ', exc_info=True)
+            self._logger.debug("Could not link star from coarse: ",
+                               exc_info=True)
             return None
 
     def clear_star_camera(self):
@@ -515,25 +531,30 @@ class System:
 
     @coarse_camera.setter
     def coarse_camera(self, cam):
-        self._logger.debug('Got set coarse camera with: ' + str(cam))
+        self._logger.debug("Got set coarse camera with: " + str(cam))
         if self.coarse_camera is not None:
-            self._logger.debug('Already have a coarse camera, try to clear it')
+            self._logger.debug("Already have a coarse camera, try to clear it")
             try:
                 self.coarse_camera.deinitialize()
-                self._logger.debug('Deinit')
+                self._logger.debug("Deinit")
             except BaseException:
-                self._logger.debug('Failed to deinit', exc_info=True)
+                self._logger.debug("Failed to deinit", exc_info=True)
             self._coarse_track_thread.camera = None
-            self._logger.debug('Cleared')
+            self._logger.debug("Cleared")
         if cam is not None:
-            assert isinstance(cam, Camera), 'Must be pypogs.Camera object'
+            assert isinstance(cam, Camera), "Must be pypogs.Camera object"
             if self._coarse_track_thread is None:
-                self._logger.info('Creating coarse tracker thread')
-                self._coarse_track_thread = TrackingThread(name='CoarseTracker')
+                self._logger.info("Creating coarse tracker thread")
+                self._coarse_track_thread = TrackingThread(
+                    name="CoarseTracker")
             self._coarse_track_thread.camera = cam
-        self._logger.debug('Set coarse camera to: ' + str(self.coarse_camera))
+        self._logger.debug("Set coarse camera to: " + str(self.coarse_camera))
 
-    def add_coarse_camera(self, model=None, identity=None, name='CoarseCamera', auto_init=True):
+    def add_coarse_camera(self,
+                          model=None,
+                          identity=None,
+                          name="CoarseCamera",
+                          auto_init=True):
         """Create and set the coarse camera. Calls pypogs.Camera constructor with
         name='CoarseCamera' and the given arguments.
 
@@ -547,26 +568,33 @@ class System:
                 Camera and auto_init is True (the default), Camera.initialize() will be called
                 after creation.
         """
-        self._logger.debug('Got add coarse camera with model=' + str(model)
-                           + ' identity=' + str(identity) + ' auto_init=' + str(auto_init))
+        self._logger.debug("Got add coarse camera with model=" + str(model) +
+                           " identity=" + str(identity) + " auto_init=" +
+                           str(auto_init))
 
         if self.coarse_camera is not None:
-            self._logger.debug('Already have a coarse camera with model='
-                               + str(self.coarse_camera.model) + ' identity='
-                               + str(self.coarse_camera.identity))
-            if self.coarse_camera.model == model and self.coarse_camera.identity == identity:
-                self._logger.debug('Already attached, just set the name')
+            self._logger.debug("Already have a coarse camera with model=" +
+                               str(self.coarse_camera.model) + " identity=" +
+                               str(self.coarse_camera.identity))
+            if (self.coarse_camera.model == model
+                    and self.coarse_camera.identity == identity):
+                self._logger.debug("Already attached, just set the name")
                 self.coarse_camera.name = name
             else:
-                self._logger.debug('Got a different camera, clear the old one')
+                self._logger.debug("Got a different camera, clear the old one")
                 self.coarse_camera = None
-                self._logger.debug('Create new camera')
-                self.coarse_camera = Camera(model=model, identity=identity, name=name,
+                self._logger.debug("Create new camera")
+                self.coarse_camera = Camera(model=model,
+                                            identity=identity,
+                                            name=name,
                                             auto_init=auto_init)
                 return self.coarse_camera
         else:
-            self._logger.debug('Dont have anything old to clean up, create new camera')
-            self.coarse_camera = Camera(model=model, identity=identity, name=name,
+            self._logger.debug(
+                "Dont have anything old to clean up, create new camera")
+            self.coarse_camera = Camera(model=model,
+                                        identity=identity,
+                                        name=name,
                                         auto_init=auto_init)
         return self.coarse_camera
 
@@ -576,7 +604,8 @@ class System:
             self.coarse_camera = self.star_camera
             return self.coarse_camera
         except BaseException:
-            self._logger.debug('Could not link coarse from star: ', exc_info=True)
+            self._logger.debug("Could not link coarse from star: ",
+                               exc_info=True)
             return None
 
     def clear_coarse_camera(self):
@@ -595,25 +624,29 @@ class System:
 
     @fine_camera.setter
     def fine_camera(self, cam):
-        self._logger.debug('Got set fine camera with: ' + str(cam))
+        self._logger.debug("Got set fine camera with: " + str(cam))
         if self.fine_camera is not None:
-            self._logger.debug('Already have a fine camera, try to clear it')
+            self._logger.debug("Already have a fine camera, try to clear it")
             try:
                 self.fine_camera.deinitialize()
-                self._logger.debug('Deinit')
+                self._logger.debug("Deinit")
             except BaseException:
-                self._logger.debug('Failed to deinit', exc_info=True)
+                self._logger.debug("Failed to deinit", exc_info=True)
             self._fine_track_thread.camera = None
-            self._logger.debug('Cleared')
+            self._logger.debug("Cleared")
         if cam is not None:
-            assert isinstance(cam, Camera), 'Must be pypogs.Camera object'
+            assert isinstance(cam, Camera), "Must be pypogs.Camera object"
             if self._fine_track_thread is None:
-                self._logger.info('Creating fine tracker thread')
-                self._fine_track_thread = TrackingThread(name='FineTracker')
+                self._logger.info("Creating fine tracker thread")
+                self._fine_track_thread = TrackingThread(name="FineTracker")
             self._fine_track_thread.camera = cam
-        self._logger.debug('Set fine camera to: ' + str(self.fine_camera))
+        self._logger.debug("Set fine camera to: " + str(self.fine_camera))
 
-    def add_fine_camera(self, model=None, identity=None, name='FineCamera', auto_init=True):
+    def add_fine_camera(self,
+                        model=None,
+                        identity=None,
+                        name="FineCamera",
+                        auto_init=True):
         """Create and set the fine camera. Calls pypogs.Camera constructor with
         name='FineCamera' and the given arguments.
 
@@ -627,25 +660,32 @@ class System:
                 Camera and auto_init is True (the default), Camera.initialize() will be called
                 after creation.
         """
-        self._logger.debug('Got add fine camera with model=' + str(model) + ' identity='
-                           + str(identity) + ' auto_init=' + str(auto_init))
+        self._logger.debug("Got add fine camera with model=" + str(model) +
+                           " identity=" + str(identity) + " auto_init=" +
+                           str(auto_init))
         if self.fine_camera is not None:
-            self._logger.debug('Already have a fine camera with model='
-                               + str(self.fine_camera.model)
-                               + ' identity=' + str(self.fine_camera.identity))
-            if self.fine_camera.model == model and self.fine_camera.identity == identity:
-                self._logger.debug('Already attached, just set the name')
+            self._logger.debug("Already have a fine camera with model=" +
+                               str(self.fine_camera.model) + " identity=" +
+                               str(self.fine_camera.identity))
+            if (self.fine_camera.model == model
+                    and self.fine_camera.identity == identity):
+                self._logger.debug("Already attached, just set the name")
                 self.fine_camera.name = name
             else:
-                self._logger.debug('Got a different camera, clear the old one')
+                self._logger.debug("Got a different camera, clear the old one")
                 self.fine_camera = None
-                self._logger.debug('Create new camera')
-                self.fine_camera = Camera(model=model, identity=identity, name=name,
+                self._logger.debug("Create new camera")
+                self.fine_camera = Camera(model=model,
+                                          identity=identity,
+                                          name=name,
                                           auto_init=auto_init)
                 return self.fine_camera
         else:
-            self._logger.debug('Dont have anything old to clean up, create new camera')
-            self.fine_camera = Camera(model=model, identity=identity, name=name,
+            self._logger.debug(
+                "Dont have anything old to clean up, create new camera")
+            self.fine_camera = Camera(model=model,
+                                      identity=identity,
+                                      name=name,
                                       auto_init=auto_init)
         return self.fine_camera
 
@@ -670,20 +710,20 @@ class System:
 
     @receiver.setter
     def receiver(self, rec):
-        self._logger.debug('Got set receiver with: '+str(rec))
+        self._logger.debug("Got set receiver with: " + str(rec))
         if self.receiver is not None:
-            self._logger.debug('Already have a receiver, try to clear it')
+            self._logger.debug("Already have a receiver, try to clear it")
             try:
                 self.receiver.deinitialize()
-                self._logger.debug('Deinit')
+                self._logger.debug("Deinit")
             except BaseException:
-                self._logger.debug('Failed to deinit', exc_info=True)
+                self._logger.debug("Failed to deinit", exc_info=True)
             self._receiver = None
-            self._logger.debug('Cleared')
+            self._logger.debug("Cleared")
         if rec is not None:
-            assert isinstance(rec, Receiver), 'Must be pypogs.Receiver'
+            assert isinstance(rec, Receiver), "Must be pypogs.Receiver"
             self._receiver = rec
-        self._logger.debug('Receiver set to: ' + str(self._receiver))
+        self._logger.debug("Receiver set to: " + str(self._receiver))
 
     def add_receiver(self, *args, **kwargs):
         """Create and set a pypogs.Receiver for the system. Arguments passed to contructor.
@@ -701,9 +741,10 @@ class System:
                 Receiver and auto_init is True (the default), Receiver.initialize() will be called
                 after creation.
         """
-        self._logger.debug('Got add receiver with args: '+str(args)+' kwargs'+str(kwargs))
+        self._logger.debug("Got add receiver with args: " + str(args) +
+                           " kwargs" + str(kwargs))
         if self.receiver is not None:
-            self._logger.debug('Already have a receiver, clear first')
+            self._logger.debug("Already have a receiver, clear first")
             self.receiver = None
         self.receiver = Receiver(*args, **kwargs)
         return self.receiver
@@ -719,20 +760,20 @@ class System:
 
     @mount.setter
     def mount(self, mount):
-        self._logger.debug('Got set mount with: ' + str(mount))
+        self._logger.debug("Got set mount with: " + str(mount))
         if self.mount is not None:
-            self._logger.debug('Already have a mount, try to clear it')
+            self._logger.debug("Already have a mount, try to clear it")
             try:
                 self.mount.deinitialize()
-                self._logger.debug('Deinit')
+                self._logger.debug("Deinit")
             except BaseException:
-                self._logger.debug('Failed to deinit', exc_info=True)
+                self._logger.debug("Failed to deinit", exc_info=True)
             self._mount = None
-            self._logger.debug('Cleared')
+            self._logger.debug("Cleared")
         if mount is not None:
-            assert isinstance(mount, Mount), 'Must be pypogs.Mount'
+            assert isinstance(mount, Mount), "Must be pypogs.Mount"
             self._mount = mount
-        self._logger.debug('Mount set to: ' + str(self._mount))
+        self._logger.debug("Mount set to: " + str(self._mount))
 
     def add_mount(self, *args, **kwargs):
         """Create and set a pypogs.Mount for System.mount. Arguments passed to constructor.
@@ -750,9 +791,10 @@ class System:
                 Mount and auto_init is True (the default), Mount.initialize() will be called after
                 creation.
         """
-        self._logger.debug('Got add mount with args: '+str(args)+' kwargs'+str(kwargs))
+        self._logger.debug("Got add mount with args: " + str(args) +
+                           " kwargs" + str(kwargs))
         if self.mount is not None:
-            self._logger.debug('Already have a mount, clear first')
+            self._logger.debug("Already have a mount, clear first")
             self.mount = None
         self.mount = Mount(*args, **kwargs)
         return self.mount
@@ -772,84 +814,126 @@ class System:
             rate_control (bool, optional): If True (the default) rate control
                 (see pypogs.Mount) is used.
         """
-        assert self.mount is not None, 'No mount'
-        assert self.star_camera is not None, 'No star camera'
-        assert self.is_init, 'System not initialized'
-        assert not self.is_busy, 'System is busy'
+        assert self.mount is not None, "No mount"
+        assert self.star_camera is not None, "No star camera"
+        assert self.is_init, "System not initialized"
+        assert not self.is_busy, "System is busy"
 
         def run():
-            self._logger.info('Starting auto-alignment.')
+            self._logger.info("Starting auto-alignment.")
             try:
                 # TODO: tetra3 should be loaded and configurable from System.
-                t3 = Tetra3('default_database')
-                pos_list = [(40, -135), (60, -135), (60, -45), (40, -45), (40, 45), (60, 45),
-                            (60, 135), (40, 135)]
+                t3 = Tetra3("default_database")
+                pos_list = [
+                    (40, -135),
+                    (60, -135),
+                    (60, -45),
+                    (40, -45),
+                    (40, 45),
+                    (60, 45),
+                    (60, 135),
+                    (40, 135),
+                ]
                 alignment_list = []
                 start_time = apy_time.now()
                 # Create logfile
-                data_filename = Path(start_time.strftime('%Y-%m-%dT%H%M%S')
-                                     + '_System_star_align.csv')
+                data_filename = Path(
+                    start_time.strftime("%Y-%m-%dT%H%M%S") +
+                    "_System_star_align.csv")
                 data_file = self.data_folder / data_filename
                 if data_file.exists():
-                    self._log_debug('File name clash. Iterating...')
+                    self._log_debug("File name clash. Iterating...")
                     append = 1
                     while data_file.exists():
-                        data_file = self.data_folder / (data_filename.stem + str(append)
-                                                        + data_filename.suffix)
+                        data_file = self.data_folder / (data_filename.stem +
+                                                        str(append) +
+                                                        data_filename.suffix)
                         append += 1
-                    self._log_debug('Found allowable file: '+str(data_file))
-                with open(data_file, 'w') as file:
+                    self._log_debug("Found allowable file: " + str(data_file))
+                with open(data_file, "w") as file:
                     writer = csv_write(file)
-                    writer.writerow(['RA', 'DEC', 'ROLL', 'FOV', 'PROB', 'TIME', 'ALT', 'AZI',
-                                     'TRIAL'])
+                    writer.writerow([
+                        "RA",
+                        "DEC",
+                        "ROLL",
+                        "FOV",
+                        "PROB",
+                        "TIME",
+                        "ALT",
+                        "AZI",
+                        "TRIAL",
+                    ])
 
                 for idx, (alt, azi) in enumerate(pos_list):
-                    self._logger.info('Getting measurement at Alt: ' + str(alt)
-                                      + ' Az: ' + str(azi) + '.')
-                    self.mount.move_to_alt_az(alt, azi, rate_control=rate_control, block=True)
+                    self._logger.info("Getting measurement at Alt: " +
+                                      str(alt) + " Az: " + str(azi) + ".")
+                    self.mount.move_to_alt_az(alt,
+                                              azi,
+                                              rate_control=rate_control,
+                                              block=True)
                     for trial in range(max_trials):
-                        assert not self._stop_loop, 'Thread stop flag is set'
+                        assert not self._stop_loop, "Thread stop flag is set"
                         img = self.star_camera.get_next_image()
                         timestamp = apy_time.now()
                         # TODO: Test
-                        fov_estimate = self.star_camera.plate_scale * img.shape[1] / 3600
-                        solve = t3.solve_from_image(img, fov_estimate=fov_estimate,
-                                                    fov_max_error=.1)
-                        self._logger.debug('TIME:  ' + timestamp.iso)
+                        fov_estimate = (self.star_camera.plate_scale *
+                                        img.shape[1] / 3600)
+                        solve = t3.solve_from_image(img,
+                                                    fov_estimate=fov_estimate,
+                                                    fov_max_error=0.1)
+                        self._logger.debug("TIME:  " + timestamp.iso)
                         # Save image
-                        tiff_write(self.data_folder / (start_time.strftime('%Y-%m-%dT%H%M%S')
-                                                       + '_Alt' + str(alt) + '_Azi' + str(azi)
-                                                       + '_Try' + str(trial+1) + '.tiff'), img)
+                        tiff_write(
+                            self.data_folder /
+                            (start_time.strftime("%Y-%m-%dT%H%M%S") + "_Alt" +
+                             str(alt) + "_Azi" + str(azi) + "_Try" +
+                             str(trial + 1) + ".tiff"),
+                            img,
+                        )
                         # Save result to logfile
-                        with open(data_file, 'a') as file:
+                        with open(data_file, "a") as file:
                             writer = csv_write(file)
-                            data = np.hstack((solve['RA'], solve['Dec'], solve['Roll'],
-                                              solve['FOV'], solve['Prob'], timestamp.iso, alt, azi,
-                                              trial + 1))
+                            data = np.hstack((
+                                solve["RA"],
+                                solve["Dec"],
+                                solve["Roll"],
+                                solve["FOV"],
+                                solve["Prob"],
+                                timestamp.iso,
+                                alt,
+                                azi,
+                                trial + 1,
+                            ))
                             writer.writerow(data)
-                        if solve['RA'] is not None:
+                        if solve["RA"] is not None:
                             break
                         elif trial + 1 < max_trials:
-                            self._logger.debug('Failed attempt '+str(trial+1))
+                            self._logger.debug("Failed attempt " +
+                                               str(trial + 1))
                         else:
-                            self._logger.debug('Failed attempt '+str(trial+1)+', skipping...')
-                    alignment_list.append((solve['RA'], solve['Dec'], timestamp, alt, azi))
+                            self._logger.debug("Failed attempt " +
+                                               str(trial + 1) +
+                                               ", skipping...")
+                    alignment_list.append(
+                        (solve["RA"], solve["Dec"], timestamp, alt, azi))
 
                 self.mount.move_home(block=False)
                 # Set the alignment!
-                assert len(alignment_list) > 0, 'Did not identify any star patterns'
+                assert len(
+                    alignment_list) > 0, "Did not identify any star patterns"
                 self.alignment.set_alignment_from_observations(alignment_list)
             except AssertionError:
-                self._logger.warning('Auto-align failed.', exc_info=True)
+                self._logger.warning("Auto-align failed.", exc_info=True)
                 self._stop_loop = True
 
             self._stop_loop = True
             self.mount.wait_for_move_to()
+
         self._thread = Thread(target=run)
         self._stop_loop = False
         self._thread.start()
 
-    def get_alt_az_of_target(self, times=None, time_step=.1):
+    def get_alt_az_of_target(self, times=None, time_step=0.1):
         """Get the corrected altitude and azimuth angles and rates of the target from the current
         alignment.
 
@@ -866,23 +950,25 @@ class System:
         """
         if times is None:
             times = apy_time.now()
-        assert isinstance(times, apy_time), 'Times must be astropy time'
+        assert isinstance(times, apy_time), "Times must be astropy time"
         # Extend the time vector by 0.1 second if only one time
-        single_time = (times.size == 1)
+        single_time = times.size == 1
         if single_time:
             times += [0, time_step] * apy_unit.second
         dt = (times[1:] - times[:-1]).sec
-        assert np.all(dt > EPS), 'Times must be different!'
+        assert np.all(dt > EPS), "Times must be different!"
 
         if isinstance(self.target.target_object, sgp4.EarthSatellite):
             pos = self.target.get_target_itrf_xyz(times)
-            alt_az = self.alignment.get_com_altaz_from_itrf_xyz(pos, position=True)
+            alt_az = self.alignment.get_com_altaz_from_itrf_xyz(pos,
+                                                                position=True)
         elif isinstance(self.target.target_object, apy_coord.SkyCoord):
             vec = self.target.get_target_itrf_xyz(times)
             alt_az = self.alignment.get_com_altaz_from_itrf_xyz(vec)
         else:
-            raise RuntimeError('The target is of unknown type!')
-        angvel_alt_az = (((alt_az[:, 1:] - alt_az[:, :-1] + 180) % 360) - 180) / dt
+            raise RuntimeError("The target is of unknown type!")
+        angvel_alt_az = ((
+            (alt_az[:, 1:] - alt_az[:, :-1] + 180) % 360) - 180) / dt
 
         if single_time:
             return alt_az[:, 0], angvel_alt_az[:, 0]
@@ -900,17 +986,17 @@ class System:
         Returns:
             numpy.ndarray: Shape (3,) if single time, shape (3,N) if array time.
         """
-        assert self.target.has_target, 'No target set'
+        assert self.target.has_target, "No target set"
         if times is None:
             times = apy_time.now()
-        assert isinstance(times, apy_time), 'Times must be astropy time'
+        assert isinstance(times, apy_time), "Times must be astropy time"
         if isinstance(self.target.target_object, sgp4.EarthSatellite):
             pos = self.target.get_target_itrf_xyz(times)
             itrf_xyz = self.alignment.get_itrf_relative_from_position(pos)
         elif isinstance(self.target.target_object, apy_coord.SkyCoord):
             itrf_xyz = self.target.get_target_itrf_xyz(times)
         else:
-            raise RuntimeError('The target is of unknown type!')
+            raise RuntimeError("The target is of unknown type!")
         itrf_xyz /= np.linalg.norm(itrf_xyz, axis=0, keepdims=True)
         return itrf_xyz
 
@@ -925,11 +1011,11 @@ class System:
             rate_control (bool, optional): If True (the default) rate control
                 (see pypogs.Mount) is used.
         """
-        assert self.mount is not None, 'No Mount'
-        assert self.is_init, 'System not initialized'
+        assert self.mount is not None, "No Mount"
+        assert self.is_init, "System not initialized"
         if time is None:
             time = apy_time.now()
-        assert isinstance(time, apy_time), 'Times must be astropy time'
+        assert isinstance(time, apy_time), "Times must be astropy time"
         if time.size == 1:
             alt_azi = self.get_alt_az_of_target(time)[0]
         else:
@@ -943,33 +1029,35 @@ class System:
         The target will be tracked between the start and end times defined in the target. To stop
         manually call System.stop_tracking().
         """
-        assert self.mount is not None, 'No mount'
-        assert self.target.has_target, 'No target set'
-        assert self.alignment.is_aligned, 'Telescope not aligned'
-        assert self.alignment.is_located, 'No telescope location'
-        assert self.is_init, 'System not initialized'
-        assert not self.is_busy, 'System is busy'
-        self._logger.info('Starting closed loop tracking')
+        assert self.mount is not None, "No mount"
+        assert self.target.has_target, "No target set"
+        assert self.alignment.is_aligned, "Telescope not aligned"
+        assert self.alignment.is_located, "No telescope location"
+        assert self.is_init, "System not initialized"
+        assert not self.is_busy, "System is busy"
+        self._logger.info("Starting closed loop tracking")
         self.control_loop_thread.start()
 
     def stop(self):
         """Stop all tasks."""
-        self._logger.info('Stop command received.')
+        self._logger.info("Stop command received.")
         try:
             self.control_loop_thread.stop()
         except BaseException:
-            self._logger.warning('Failed to stop control loop thread.', exc_info=True)
+            self._logger.warning("Failed to stop control loop thread.",
+                                 exc_info=True)
         if self._thread is not None and self._thread.is_alive:
             self._stop_loop = True
             try:
                 self._thread.join()
             except BaseException:
-                self._logger.warning('Failed to join system worker thread.', exc_info=True)
+                self._logger.warning("Failed to join system worker thread.",
+                                     exc_info=True)
         if self.mount is not None and self.mount.is_init:
             try:
                 self.mount.stop()
             except BaseException:
-                self._logger.warning('Failed to stop mount.', exc_info=True)
+                self._logger.warning("Failed to stop mount.", exc_info=True)
 
     def do_alignment_test(self, max_trials=2, rate_control=True):
         """Move to 40 positions spread across the sky and measure the alignment errors.
@@ -984,104 +1072,178 @@ class System:
         """
         # Took 12 min without backlash_comp (no images)
         # Took 21 min with backlash_comp (no images)
-        assert self.alignment.is_aligned, 'Not aligned'
-        assert self.mount is not None, 'No mount'
-        assert self.star_camera is not None, 'No star camera'
-        assert self.is_init, 'System not initialized'
-        assert not self.is_busy, 'System is busy'
+        assert self.alignment.is_aligned, "Not aligned"
+        assert self.mount is not None, "No mount"
+        assert self.star_camera is not None, "No star camera"
+        assert self.is_init, "System not initialized"
+        assert not self.is_busy, "System is busy"
 
         # TODO: Thread and test this one
         # TODO: t3 loded and set up from System
-        t3 = Tetra3('default_database')
-        self._logger.info('Starting alignment test, 2x20 positions.')
-        pos_LH = [(53, -16), (71, -23), (80, -9), (44, -114), (56, -135), (50, -100), (65, -65),
-                  (26, -72), (23, -30), (59, -37), (35, -177), (47, -142), (20, -86), (38, -79),
-                  (41, -51), (77, -2), (74, -170), (29, -44), (62, -156), (68, -163)]
-        pos_RH = [(80, 166), (53, 138), (56, 54), (68, 180), (35, 26), (23, 33), (44, 75),
-                  (38, 152), (65, 19), (50, 159), (32, 82), (26, 96), (41, 110), (29, 89),
-                  (20, 103), (77, 5), (74, 47), (59, 117), (47, 173), (71, 124)]
+        t3 = Tetra3("default_database")
+        self._logger.info("Starting alignment test, 2x20 positions.")
+        pos_LH = [
+            (53, -16),
+            (71, -23),
+            (80, -9),
+            (44, -114),
+            (56, -135),
+            (50, -100),
+            (65, -65),
+            (26, -72),
+            (23, -30),
+            (59, -37),
+            (35, -177),
+            (47, -142),
+            (20, -86),
+            (38, -79),
+            (41, -51),
+            (77, -2),
+            (74, -170),
+            (29, -44),
+            (62, -156),
+            (68, -163),
+        ]
+        pos_RH = [
+            (80, 166),
+            (53, 138),
+            (56, 54),
+            (68, 180),
+            (35, 26),
+            (23, 33),
+            (44, 75),
+            (38, 152),
+            (65, 19),
+            (50, 159),
+            (32, 82),
+            (26, 96),
+            (41, 110),
+            (29, 89),
+            (20, 103),
+            (77, 5),
+            (74, 47),
+            (59, 117),
+            (47, 173),
+            (71, 124),
+        ]
 
         test_time = apy_time.now()
         # Create datafile
-        data_filename = Path(test_time.strftime('%Y-%m-%dT%H%M%S')+'_System_align_test_hemisp.csv')
+        data_filename = Path(
+            test_time.strftime("%Y-%m-%dT%H%M%S") +
+            "_System_align_test_hemisp.csv")
         data_file = self.data_folder / data_filename
         if data_file.exists():
-            self._log_debug('File name clash. Iterating...')
+            self._log_debug("File name clash. Iterating...")
             append = 1
             while data_file.exists():
-                data_file = self.data_folder / (data_filename.stem + str(append)
-                                                + data_filename.suffix)
+                data_file = self.data_folder / (
+                    data_filename.stem + str(append) + data_filename.suffix)
                 append += 1
-            self._log_debug('Found allowable file: '+str(data_file))
-        with open(data_file, 'w+') as file:
+            self._log_debug("Found allowable file: " + str(data_file))
+        with open(data_file, "w+") as file:
             writer = csv_write(file)
-            writer.writerow(['RA', 'DEC', 'ROLL', 'FOV', 'PROB', 'TIME', 'ALT', 'AZI', 'ALT_OBS',
-                             'AZI_OBS', 'TRIAL'])
+            writer.writerow([
+                "RA",
+                "DEC",
+                "ROLL",
+                "FOV",
+                "PROB",
+                "TIME",
+                "ALT",
+                "AZI",
+                "ALT_OBS",
+                "AZI_OBS",
+                "TRIAL",
+            ])
 
         for k in range(2):
             if k == 0:
-                self._logger.info('Left half')
+                self._logger.info("Left half")
                 positions = pos_LH
                 (alt, azi) = (0, -90)
                 altaz = self.alignment.get_com_altaz_from_enu_altaz((alt, azi))
                 self.mount.move_to_alt_az(*altaz, block=True)
             else:
-                self._logger.info('Right half')
+                self._logger.info("Right half")
                 positions = pos_RH
                 (alt, azi) = (0, 90)
                 altaz = self.alignment.get_com_altaz_from_enu_altaz((alt, azi))
                 self.mount.move_to_alt_az(*altaz, block=True)
             for i in range(len(positions)):
                 (alt, azi) = positions[i]
-                self._logger.info('Getting measurement at Alt: ' + str(alt) + ' Az: ' + str(azi)
-                                  + ' ENU.')
+                self._logger.info("Getting measurement at Alt: " + str(alt) +
+                                  " Az: " + str(azi) + " ENU.")
                 altaz = self.alignment.get_com_altaz_from_enu_altaz((alt, azi))
-                self.mount.move_to_alt_az(*altaz, rate_control=rate_control, block=True)
+                self.mount.move_to_alt_az(*altaz,
+                                          rate_control=rate_control,
+                                          block=True)
                 for trial in range(max_trials):
                     img = self.star_camera.get_next_image()
                     timestamp = apy_time.now()
                     # TODO: Test
-                    fov_estimate = self.star_camera.plate_scale * img.shape[1] / 3600
-                    solve = t3.solve_from_image(img, fov_estimate=fov_estimate, fov_max_error=.1)
-                    self._logger.debug('TIME:  ' + timestamp.iso)
+                    fov_estimate = self.star_camera.plate_scale * img.shape[
+                        1] / 3600
+                    solve = t3.solve_from_image(img,
+                                                fov_estimate=fov_estimate,
+                                                fov_max_error=0.1)
+                    self._logger.debug("TIME:  " + timestamp.iso)
                     # Save image
-                    tiff_write(self.data_folder / (test_time.strftime('%Y-%m-%dT%H%M%S') + '_Alt'
-                                                   + str(alt) + '_Azi' + str(azi) + '_Try'
-                                                   + str(trial + 1) + '.tiff'), img)
-                    if solve['RA'] is not None:
+                    tiff_write(
+                        self.data_folder /
+                        (test_time.strftime("%Y-%m-%dT%H%M%S") + "_Alt" +
+                         str(alt) + "_Azi" + str(azi) + "_Try" +
+                         str(trial + 1) + ".tiff"),
+                        img,
+                    )
+                    if solve["RA"] is not None:
                         # ra,dec,time to ITRF
-                        c = apy_coord.SkyCoord(solve['RA'], solve['Dec'], obstime=timestamp,
-                                               unit='deg')
+                        c = apy_coord.SkyCoord(solve["RA"],
+                                               solve["Dec"],
+                                               obstime=timestamp,
+                                               unit="deg")
                         c = c.transform_to(apy_coord.ITRS)
                         xyz_observed = [c.x.value, c.y.value, c.z.value]
-                        (alt_obs, azi_obs) = self.alignment. \
-                            get_enu_altaz_from_itrf_xyz(xyz_observed)
+                        (alt_obs,
+                         azi_obs) = self.alignment.get_enu_altaz_from_itrf_xyz(
+                             xyz_observed)
                         err_alt = (alt_obs - alt) * 3600
                         err_azi = (azi_obs - azi) * 3600
-                        self._logger.info('Observed position degrees Alt: '
-                                          + str(round(alt_obs, 3))
-                                          + ' Azi:' + str(round(azi_obs, 3)))
-                        self._logger.info('Difference measured arcsec Alt: '
-                                          + str(round(err_alt, 1))
-                                          + ' Azi:' + str(round(err_azi, 1)))
+                        self._logger.info("Observed position degrees Alt: " +
+                                          str(round(alt_obs, 3)) + " Azi:" +
+                                          str(round(azi_obs, 3)))
+                        self._logger.info("Difference measured arcsec Alt: " +
+                                          str(round(err_alt, 1)) + " Azi:" +
+                                          str(round(err_azi, 1)))
                     else:
-                        (alt_obs, azi_obs) = [None]*2
+                        (alt_obs, azi_obs) = [None] * 2
                     # Save result to logfile
-                    with open(data_file, 'a') as file:
+                    with open(data_file, "a") as file:
                         writer = csv_write(file)
-                        data = np.hstack((solve['RA'], solve['Dec'], solve['Roll'], solve['FOV'],
-                                          solve['Prob'], timestamp.iso, alt, azi, alt_obs, azi_obs,
-                                          trial+1))
+                        data = np.hstack((
+                            solve["RA"],
+                            solve["Dec"],
+                            solve["Roll"],
+                            solve["FOV"],
+                            solve["Prob"],
+                            timestamp.iso,
+                            alt,
+                            azi,
+                            alt_obs,
+                            azi_obs,
+                            trial + 1,
+                        ))
                         print(data)
                         writer.writerow(data)
-                    if solve['RA'] is not None:
+                    if solve["RA"] is not None:
                         break
                     elif trial + 1 < max_trials:
-                        print('Failed attempt '+str(trial+1))
+                        print("Failed attempt " + str(trial + 1))
                     else:
-                        print('Failed attempt '+str(trial+1)+', skipping...')
+                        print("Failed attempt " + str(trial + 1) +
+                              ", skipping...")
 
-        print('Done! Moving home')
+        print("Done! Moving home")
         self.mount.move_to_alt_az(0, 0, block=True)
 
 
@@ -1151,15 +1313,16 @@ class Alignment:
         debug_folder (pathlib.Path, optional): The folder for debug logging. If None (the default)
             the folder *pypogs*/debug will be used/created.
     """
+
     def __init__(self, data_folder=None, debug_folder=None):
         """Create Alignment instance. See class documentation."""
         # Logger setup
         self._debug_folder = None
         if debug_folder is None:
-            self.debug_folder = Path(__file__).parent / 'debug'
+            self.debug_folder = Path(__file__).parent / "debug"
         else:
             self.debug_folder = debug_folder
-        self._logger = logging.getLogger('pypogs.system.Alignment')
+        self._logger = logging.getLogger("pypogs.system.Alignment")
         if not self._logger.hasHandlers():
             # Add new handlers to the logger if there are none
             self._logger.setLevel(logging.DEBUG)
@@ -1167,20 +1330,21 @@ class Alignment:
             ch = logging.StreamHandler()
             ch.setLevel(logging.INFO)
             # File handler at DEBUG level
-            fh = logging.FileHandler(self.debug_folder / 'pypogs.txt')
+            fh = logging.FileHandler(self.debug_folder / "pypogs.txt")
             fh.setLevel(logging.DEBUG)
             # Format and add
-            formatter = logging.Formatter('%(asctime)s:%(name)s-%(levelname)s: %(message)s')
+            formatter = logging.Formatter(
+                "%(asctime)s:%(name)s-%(levelname)s: %(message)s")
             fh.setFormatter(formatter)
             ch.setFormatter(formatter)
             self._logger.addHandler(fh)
             self._logger.addHandler(ch)
 
-        self._logger.debug('Alignment constructor called')
+        self._logger.debug("Alignment constructor called")
         # Data folder setup
         self._data_folder = None
         if data_folder is None:
-            self.data_folder = Path(__file__).parent / 'data'
+            self.data_folder = Path(__file__).parent / "data"
         else:
             self.data_folder = data_folder
         # Telescope location
@@ -1198,31 +1362,29 @@ class Alignment:
 
     @property
     def data_folder(self):
-        """pathlib.Path: Get or set the path for data saving. Will create folder if not existing.
-        """
+        """pathlib.Path: Get or set the path for data saving. Will create folder if not existing."""
         return self._data_folder
 
     @data_folder.setter
     def data_folder(self, path):
-        assert isinstance(path, Path), 'Must be pathlib.Path object'
-        self._logger.debug('Got set data folder with: '+str(path))
+        assert isinstance(path, Path), "Must be pathlib.Path object"
+        self._logger.debug("Got set data folder with: " + str(path))
         if path.is_file():
             path = path.parent
         if not path.is_dir():
             path.mkdir(parents=True)
         self._data_folder = path
-        self._logger.debug('Set data folder to: '+str(self._data_folder))
+        self._logger.debug("Set data folder to: " + str(self._data_folder))
 
     @property
     def debug_folder(self):
-        """pathlib.Path: Get or set the path for debug logging. Will create folder if not existing.
-        """
+        """pathlib.Path: Get or set the path for debug logging. Will create folder if not existing."""
         return self._debug_folder
 
     @debug_folder.setter
     def debug_folder(self, path):
         # Do not do logging in here! This will be called before the logger is set up
-        assert isinstance(path, Path), 'Must be pathlib.Path object'
+        assert isinstance(path, Path), "Must be pathlib.Path object"
         if path.is_file():
             path = path.parent
         if not path.is_dir():
@@ -1243,65 +1405,80 @@ class Alignment:
         """tuple of float: Get the location in latitude (deg), longitude (deg), height (m) above
         ellipsoid.
         """
-        assert self.is_located, 'Not located'
+        assert self.is_located, "Not located"
         gd = self._location.geodetic
-        return (gd.lat.to_value(apy_unit.deg),
-                gd.lon.to_value(apy_unit.deg),
-                gd.height.to_value(apy_unit.m))
+        return (
+            gd.lat.to_value(apy_unit.deg),
+            gd.lon.to_value(apy_unit.deg),
+            gd.height.to_value(apy_unit.m),
+        )
 
     def get_location_itrf(self):
         """numpy.ndarray: Get the location in ITRF x (m), y (m), z (m) as shape (3,) array."""
-        assert self.is_located, 'Not located'
+        assert self.is_located, "Not located"
         gc = self._location.geocentric
-        return np.array((gc[0].to_value(apy_unit.m),
-                         gc[1].to_value(apy_unit.m),
-                         gc[2].to_value(apy_unit.m)))
+        return np.array((
+            gc[0].to_value(apy_unit.m),
+            gc[1].to_value(apy_unit.m),
+            gc[2].to_value(apy_unit.m),
+        ))
 
     def set_location_lat_lon(self, lat, lon, height=0):
         """Set the location via latitude (deg), longitude (deg), height (m, default 0) above
         ellipsoid.
         """
-        self._logger.debug('Got set location with lat=' + str(lat) + ' lon=' + str(lon)
-                           + ' height=' + str(height))
-        self._location = apy_coord.EarthLocation.from_geodetic(lat=lat, lon=lon, height=height)
-        self._logger.debug('Location set to: '+str(self._location))
+        self._logger.debug("Got set location with lat=" + str(lat) + " lon=" +
+                           str(lon) + " height=" + str(height))
+        self._location = apy_coord.EarthLocation.from_geodetic(lat=lat,
+                                                               lon=lon,
+                                                               height=height)
+        self._logger.debug("Location set to: " + str(self._location))
         # Set ITRF-ENU transformations for new location
         self._set_mx_enu_itrf()
 
     def set_location_itrf(self, x, y, z):
         """Set the location via ITRF position x (m), y (m), z (m)."""
-        self._logger.debug('Got set location with x='+str(x)+' y='+str(y)+' z='+str(z))
-        self._location = apy_coord.EarthLocation.from_geocentric(x, y, z, unit=apy_unit.m)
-        self._logger.debug('Location set to: '+str(self._location))
+        self._logger.debug("Got set location with x=" + str(x) + " y=" +
+                           str(y) + " z=" + str(z))
+        self._location = apy_coord.EarthLocation.from_geocentric(
+            x, y, z, unit=apy_unit.m)
+        self._logger.debug("Location set to: " + str(self._location))
         # Set ITRF-ENU transformations for new location
         self._set_mx_enu_itrf()
 
     def _set_mx_enu_itrf(self):
-        """PRIVATE: Calculate transformation matrices between ENU and ITRF based on our location.
-        """
-        self._logger.debug('Got set MX ENU-ITRF')
+        """PRIVATE: Calculate transformation matrices between ENU and ITRF based on our location."""
+        self._logger.debug("Got set MX ENU-ITRF")
         # Get lat lon in radians
         (lat, lon) = np.deg2rad(self.get_location_lat_lon_height()[:2])
-        self._logger.debug('At lat='+str(lat)+' lon='+str(lon)+' (rad)')
+        self._logger.debug("At lat=" + str(lat) + " lon=" + str(lon) +
+                           " (rad)")
         # Find basis vectors
-        up = np.asarray([np.cos(lat)*np.cos(lon), np.cos(lat)*np.sin(lon), np.sin(lat)])
-        north = np.asarray([-np.sin(lat)*np.cos(lon), -np.sin(lat)*np.sin(lon), np.cos(lat)])
+        up = np.asarray([
+            np.cos(lat) * np.cos(lon),
+            np.cos(lat) * np.sin(lon),
+            np.sin(lat)
+        ])
+        north = np.asarray([
+            -np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon),
+            np.cos(lat)
+        ])
         east = np.asarray([-np.sin(lon), np.cos(lon), 0])
         # Calculate matrices
         self._MX_itrf2enu = np.vstack((east, north, up))
         self._MX_enu2itrf = self._MX_itrf2enu.transpose()
-        self._logger.debug('Set MX_enu2itrf to: '+str(self._MX_enu2itrf))
-        self._logger.debug('Set MX_itrf2enu to: '+str(self._MX_itrf2enu))
+        self._logger.debug("Set MX_enu2itrf to: " + str(self._MX_enu2itrf))
+        self._logger.debug("Set MX_itrf2enu to: " + str(self._MX_itrf2enu))
 
     def get_itrf_relative_from_position(self, itrf_pos):
         """Get the vector in ITRF pointing from the telescope to the given position. Not
         normalised.
         """
-        assert self.is_located, 'No location'
+        assert self.is_located, "No location"
         itrf_pos = np.asarray(itrf_pos)
         if itrf_pos.size == 3:  # Makes size 3 vectors into (3,1) vectors
             itrf_pos = itrf_pos.reshape((3, 1))
-        assert itrf_pos.shape[0] == 3, 'Input must be size 3 or shape (3,N)'
+        assert itrf_pos.shape[0] == 3, "Input must be size 3 or shape (3,N)"
         # Calculate relative vector
         relative = itrf_pos - self.get_location_itrf().reshape((3, 1))
         return relative.squeeze()
@@ -1315,7 +1492,7 @@ class Alignment:
         Returns:
             numpy.ndarray: Shape (3,) if single input, shape (3,N) if array input.
         """
-        assert self.is_located, 'Not located'
+        assert self.is_located, "Not located"
         enu_altaz = np.asarray(enu_altaz)
         if enu_altaz.size == 2:
             enu_altaz = enu_altaz.reshape((2, 1))
@@ -1323,9 +1500,11 @@ class Alignment:
         enu_alt = np.deg2rad(enu_altaz[0, :])
         enu_azi = np.deg2rad(enu_altaz[1, :])
         # AltAz to xyz
-        enu_xyz = np.vstack((np.cos(enu_alt) * np.sin(enu_azi),
-                             np.cos(enu_alt) * np.cos(enu_azi),
-                             np.sin(enu_alt)))
+        enu_xyz = np.vstack((
+            np.cos(enu_alt) * np.sin(enu_azi),
+            np.cos(enu_alt) * np.cos(enu_azi),
+            np.sin(enu_alt),
+        ))
         # ENU to ITRF
         itrf_xyz = self._MX_enu2itrf @ enu_xyz
         return itrf_xyz.squeeze()
@@ -1343,14 +1522,14 @@ class Alignment:
         Returns:
             numpy.ndarray: Shape (2,) if single input, shape (2,N) if array input.
         """
-        assert self.is_located, 'Not located'
+        assert self.is_located, "Not located"
         # Make sure we have (3,N) vectors
         itrf_xyz = np.asarray(itrf_xyz)
         if position:  # Get vector pointing in desired direction
             itrf_xyz = self.get_itrf_relative_from_position(itrf_xyz)
         if itrf_xyz.size == 3:  # Makes size 3 vectors into (3,1) vectors
             itrf_xyz = itrf_xyz.reshape((3, 1))
-        assert itrf_xyz.shape[0] == 3, 'Input must be size 3 or shape (3,N)'
+        assert itrf_xyz.shape[0] == 3, "Input must be size 3 or shape (3,N)"
         # Normalise
         itrf_xyz /= np.linalg.norm(itrf_xyz, axis=0, keepdims=True)
         # ITRF to ENU
@@ -1370,7 +1549,7 @@ class Alignment:
         Returns:
             numpy.ndarray: Shape (3,) if single input, shape (3,N) if array input.
         """
-        assert self.is_aligned, 'Not aligned'
+        assert self.is_aligned, "Not aligned"
         mnt_altaz = np.asarray(mnt_altaz)
         if mnt_altaz.size == 2:
             mnt_altaz = mnt_altaz.reshape((2, 1))
@@ -1378,9 +1557,11 @@ class Alignment:
         mnt_alt = np.deg2rad(mnt_altaz[0, :])
         mnt_azi = np.deg2rad(mnt_altaz[1, :])
         # AltAz to xyz
-        mnt_xyz = np.asarray([np.cos(mnt_alt) * np.sin(mnt_azi),
-                              np.cos(mnt_alt) * np.cos(mnt_azi),
-                              np.sin(mnt_alt)])
+        mnt_xyz = np.asarray([
+            np.cos(mnt_alt) * np.sin(mnt_azi),
+            np.cos(mnt_alt) * np.cos(mnt_azi),
+            np.sin(mnt_alt),
+        ])
         # ENU to ITRF
         itrf_xyz = self._MX_mnt2itrf @ mnt_xyz
         return itrf_xyz.squeeze()
@@ -1398,14 +1579,14 @@ class Alignment:
         Returns:
             numpy.ndarray: Shape (2,) if single input, shape (2,N) if array input.
         """
-        assert self.is_aligned, 'Not aligned'
+        assert self.is_aligned, "Not aligned"
         # Make sure we have (3,N) vectors
         itrf_xyz = np.asarray(itrf_xyz)
         if position:  # Get vector pointing in desired direction
             itrf_xyz = self.get_itrf_relative_from_position(itrf_xyz)
         if itrf_xyz.size == 3:  # Makes size 3 vectors into (3,1) vectors
             itrf_xyz = itrf_xyz.reshape((3, 1))
-        assert itrf_xyz.shape[0] == 3, 'Input must be size 3 or shape (3,N)'
+        assert itrf_xyz.shape[0] == 3, "Input must be size 3 or shape (3,N)"
         # Normalise
         itrf_xyz /= np.linalg.norm(itrf_xyz, axis=0, keepdims=True)
         # ITRF to MNT
@@ -1446,8 +1627,8 @@ class Alignment:
         if mnt_altaz.size == 2:
             mnt_altaz = mnt_altaz.reshape((2, 1))
         # Add corrections
-        com_azi = mnt_altaz[1, :] - self._Cnp * np.tan(np.deg2rad(np.clip(mnt_altaz[0, :],
-                                                                          -85, 85)))
+        com_azi = mnt_altaz[1, :] - self._Cnp * np.tan(
+            np.deg2rad(np.clip(mnt_altaz[0, :], -85, 85)))
         com_alt = (1 + self._Cvd) * mnt_altaz[0, :] + self._Alt0
         return np.vstack((com_alt, com_azi)).squeeze()
 
@@ -1521,10 +1702,15 @@ class Alignment:
         Returns:
             numpy.ndarray: Shape (2,) if single input, shape (2,N) if array input.
         """
-        mnt_altaz = self.get_mnt_altaz_from_itrf_xyz(itrf_xyz, position=position)
+        mnt_altaz = self.get_mnt_altaz_from_itrf_xyz(itrf_xyz,
+                                                     position=position)
         return self.get_com_altaz_from_mnt_altaz(mnt_altaz)
 
-    def set_alignment_from_observations(self, obs_data, alt0=None, Cvd=None, Cnp=None):
+    def set_alignment_from_observations(self,
+                                        obs_data,
+                                        alt0=None,
+                                        Cvd=None,
+                                        Cnp=None):
         """Use star camera/plate solving observations to set the alignment and mount correction
         terms.
 
@@ -1547,29 +1733,37 @@ class Alignment:
             Cnp (float, optional): Axes nonperpendicularity (deg). If None (default) it will be
                 solved for.
         """
-        self._logger.debug('Got set alignment from obs with: obs_data=' + str(obs_data) + ' alt0='
-                           + str(alt0) + ' Cvd=' + str(Cvd) + ' Cnp=' + str(Cvd))
-        assert len(obs_data) == 8, 'Must have 8 observations'
-        assert all(isinstance(obs, tuple) and len(obs) == 5 for obs in obs_data), \
-            'Observation must be tuple with [RA,DEC,TIME,ALT,AZ]'
-        assert all(isinstance(obs[2], apy_time) for obs in obs_data), \
-            'Timestamp must be astropy object'
-        self._logger.info('Calculating alignment and corrections from observations.')
+        self._logger.debug("Got set alignment from obs with: obs_data=" +
+                           str(obs_data) + " alt0=" + str(alt0) + " Cvd=" +
+                           str(Cvd) + " Cnp=" + str(Cvd))
+        assert len(obs_data) == 8, "Must have 8 observations"
+        assert all(
+            isinstance(obs, tuple) and len(obs) == 5 for obs in
+            obs_data), "Observation must be tuple with [RA,DEC,TIME,ALT,AZ]"
+        assert all(isinstance(obs[2], apy_time)
+                   for obs in obs_data), "Timestamp must be astropy object"
+        self._logger.info(
+            "Calculating alignment and corrections from observations.")
         # Check which have data
         valid = np.fromiter((k[0] is not None for k in obs_data), bool)
-        self._logger.debug('Valid: ' + str(valid))
+        self._logger.debug("Valid: " + str(valid))
         # Convert measurements to ITRF:
         obs_in_itrf = np.zeros((3, 8))
         for obs in range(len(valid)):
             if valid[obs]:
                 # Convert Ra,Dec,Time to ECEF:
-                c = apy_coord.SkyCoord(obs_data[obs][0], obs_data[obs][1],
-                                       obstime=obs_data[obs][2], unit='deg', frame='icrs')
+                c = apy_coord.SkyCoord(
+                    obs_data[obs][0],
+                    obs_data[obs][1],
+                    obstime=obs_data[obs][2],
+                    unit="deg",
+                    frame="icrs",
+                )
                 c = c.transform_to(apy_coord.ITRS)
                 obs_in_itrf[:, obs] = [c.x.value, c.y.value, c.z.value]
             else:
-                self._logger.debug('Skipping observation ' + str(obs))
-        self._logger.debug('In ITRF: ' + str(obs_in_itrf))
+                self._logger.debug("Skipping observation " + str(obs))
+        self._logger.debug("In ITRF: " + str(obs_in_itrf))
         # Pairs with same alt and opposite azi
         opposing_pairs = ([0, 4], [1, 5], [3, 7], [2, 6])
         # Pairs with same azi different alt
@@ -1583,111 +1777,134 @@ class Alignment:
                 Mz_obs[:, n] = np.sum(obs_in_itrf[:, pos], axis=1)
                 Mz_obs[:, n] = Mz_obs[:, n] / np.linalg.norm(Mz_obs[:, n])
                 n += 1
-        assert n > 1, 'Less than two valid opposing pairs'
+        assert n > 1, "Less than two valid opposing pairs"
         Mz_obs = Mz_obs[:, :n]  # Trim the end!
-        self._logger.debug('c-axis estimates: ' + str(Mz_obs))
+        self._logger.debug("c-axis estimates: " + str(Mz_obs))
         # Average
         Mz = np.sum(Mz_obs, axis=1)
         Mz = Mz / np.linalg.norm(Mz)
         # Find residuals
-        Mz_sstd = np.sqrt(np.sum(np.rad2deg(np.arccos(np.dot(Mz, Mz_obs)))**2) / (n - 1))
-        self._logger.info('Solved MNT c axis: ' + str(np.round(Mz, 3).squeeze()) + ' | RMS: '
-                          + str(round(Mz_sstd * 3600, 1)) + ' asec (n=' + str(n) + ').')
+        Mz_sstd = np.sqrt(
+            np.sum(np.rad2deg(np.arccos(np.dot(Mz, Mz_obs)))**2) / (n - 1))
+        self._logger.info("Solved MNT c axis: " +
+                          str(np.round(Mz, 3).squeeze()) + " | RMS: " +
+                          str(round(Mz_sstd * 3600, 1)) + " asec (n=" +
+                          str(n) + ").")
         # 2) Calculate true alt and vector projected into plane perp to c for observations
-        alt_meas = np.zeros((len(valid),))
+        alt_meas = np.zeros((len(valid), ))
         V_perp = np.zeros((3, len(valid)))
         for obs in range(len(valid)):
             if valid[obs]:
-                alt_meas[obs] = 90 - np.rad2deg(np.arccos(np.dot(Mz, obs_in_itrf[:, obs])))
-                V_perp[:, obs] = obs_in_itrf[:, obs] - np.dot(obs_in_itrf[:, obs], Mz) * Mz
-                V_perp[:, obs] = V_perp[:, obs] / np.linalg.norm(V_perp[:, obs])
-        self._logger.debug('Measured MNT Alt: ' + str(alt_meas))
-        self._logger.debug('Perpendicular vector: ' + str(V_perp))
+                alt_meas[obs] = 90 - np.rad2deg(
+                    np.arccos(np.dot(Mz, obs_in_itrf[:, obs])))
+                V_perp[:, obs] = (obs_in_itrf[:, obs] -
+                                  np.dot(obs_in_itrf[:, obs], Mz) * Mz)
+                V_perp[:,
+                       obs] = V_perp[:, obs] / np.linalg.norm(V_perp[:, obs])
+        self._logger.debug("Measured MNT Alt: " + str(alt_meas))
+        self._logger.debug("Perpendicular vector: " + str(V_perp))
         # 3) Calculate vertical deflection
         if Cvd is None:
-            Cvd_obs = np.zeros((len(azi_pairs),))
+            Cvd_obs = np.zeros((len(azi_pairs), ))
             n = 0
             for pos in azi_pairs:
                 if np.all(valid[pos]):
-                    Cvd_obs[n] = (obs_data[pos[0]][3] - obs_data[pos[1]][3]) \
-                                / (alt_meas[pos[0]] - alt_meas[pos[1]]) - 1
+                    Cvd_obs[n] = (obs_data[pos[0]][3] - obs_data[pos[1]][3]
+                                  ) / (alt_meas[pos[0]] - alt_meas[pos[1]]) - 1
                     n += 1
-            assert n > 1, 'Less than two valid stacked pairs'
+            assert n > 1, "Less than two valid stacked pairs"
             Cvd_obs = Cvd_obs[:n]  # Trim the end!
-            self._logger.debug('Cvd estimates: ' + str(Cvd_obs))
+            self._logger.debug("Cvd estimates: " + str(Cvd_obs))
             # Average and find residuals
             Cvd = np.mean(Cvd_obs)
             Cvd_sstd = np.sqrt(np.sum((Cvd_obs - Cvd)**2) / (n - 1))
-            self._logger.info('Solved Vert. Defl.: ' + str(round(Cvd * 100, 3)) + '% | RMS: '
-                              + str(round(Cvd_sstd * 100, 3)) + '% (n=' + str(n) + ').')
+            self._logger.info("Solved Vert. Defl.: " +
+                              str(round(Cvd * 100, 3)) + "% | RMS: " +
+                              str(round(Cvd_sstd * 100, 3)) + "% (n=" +
+                              str(n) + ").")
         else:
-            self._logger.info('Given Vert. Defl.: ' + str(np.round(Cvd * 100, 3)) + '%.')
+            self._logger.info("Given Vert. Defl.: " +
+                              str(np.round(Cvd * 100, 3)) + "%.")
             Cvd_sstd = -1
         # 4) Find alt offset
         if alt0 is None:
-            alt0_obs = np.zeros((len(valid),))
+            alt0_obs = np.zeros((len(valid), ))
             n = 0
             for obs in range(len(valid)):
                 if valid[obs]:
-                    alt0_obs[n] = obs_data[obs][3] - (1 + Cvd)*alt_meas[obs]
+                    alt0_obs[n] = obs_data[obs][3] - (1 + Cvd) * alt_meas[obs]
                     n += 1
             alt0_obs = alt0_obs[:n]  # Trim the end!
-            self._logger.debug('Alt0 estimates: ' + str(alt0_obs))
+            self._logger.debug("Alt0 estimates: " + str(alt0_obs))
             # Average and find residuals
             alt0 = np.mean(alt0_obs)
             alt0_sstd = np.sqrt(np.sum((alt0_obs - alt0)**2) / (n - 1))
-            self._logger.info('Solved Alt. Zero: ' + str(round(alt0, 4)) + DEG + ' | RMS: '
-                              + str(round(alt0_sstd, 4)) + DEG + ' (n=' + str(n) + ').')
+            self._logger.info("Solved Alt. Zero: " + str(round(alt0, 4)) +
+                              DEG + " | RMS: " + str(round(alt0_sstd, 4)) +
+                              DEG + " (n=" + str(n) + ").")
         else:
-            self._logger.info('Given Alt. Zero: ' + str(round(alt0, 4)) + DEG + '.')
+            self._logger.info("Given Alt. Zero: " + str(round(alt0, 4)) + DEG +
+                              ".")
             alt0_sstd = -1
         # 5) Find nonperpendicularity
         if Cnp is None:
-            Cnp_obs = np.zeros((len(azi_pairs),))
+            Cnp_obs = np.zeros((len(azi_pairs), ))
             n = 0
             for pos in azi_pairs:
                 if np.all(valid[pos]):
-                    d_Azi = np.rad2deg(np.arcsin(np.dot(Mz, np.cross(V_perp[:, pos[0]],
-                                                                     V_perp[:, pos[1]]))))
-                    Cnp_obs[n] = d_Azi / (np.tan(np.deg2rad(alt_meas[pos[0]]))
-                                          - np.tan(np.deg2rad(alt_meas[pos[1]])))
+                    d_Azi = np.rad2deg(
+                        np.arcsin(
+                            np.dot(
+                                Mz,
+                                np.cross(V_perp[:, pos[0]], V_perp[:,
+                                                                   pos[1]]))))
+                    Cnp_obs[n] = d_Azi / (
+                        np.tan(np.deg2rad(alt_meas[pos[0]])) -
+                        np.tan(np.deg2rad(alt_meas[pos[1]])))
                     n += 1
             Cnp_obs = Cnp_obs[:n]  # Trim the end!
-            self._logger.debug('Cnp estimates: ' + str(Cnp_obs))
+            self._logger.debug("Cnp estimates: " + str(Cnp_obs))
             # Average and find residuals
             Cnp = np.mean(Cnp_obs)
             Cnp_sstd = np.sqrt(np.sum((Cnp_obs - Cnp)**2) / (n - 1))
-            self._logger.info('Solved Nonperp.: ' + str(round(Cnp, 4)) + DEG + ' | RMS: '
-                              + str(round(Cnp_sstd, 4)) + DEG + ' (n=' + str(n) + ').')
+            self._logger.info("Solved Nonperp.: " + str(round(Cnp, 4)) + DEG +
+                              " | RMS: " + str(round(Cnp_sstd, 4)) + DEG +
+                              " (n=" + str(n) + ").")
         else:
-            self._logger.info('Given Nonperp.: ' + str(round(Cnp, 4)) + DEG + '.')
+            self._logger.info("Given Nonperp.: " + str(round(Cnp, 4)) + DEG +
+                              ".")
             Cnp_sstd = -1
         # 6) Backcalculate azi correction
-        azi_backcalc = np.zeros((len(valid),))
+        azi_backcalc = np.zeros((len(valid), ))
         for obs in range(len(valid)):
-            azi_backcalc[obs] = obs_data[obs][4] + Cnp * np.tan(np.deg2rad(alt_meas[obs]))
-        self._logger.debug('Backcalculated MNT Azi: ' + str(azi_backcalc))
+            azi_backcalc[obs] = obs_data[obs][4] + Cnp * np.tan(
+                np.deg2rad(alt_meas[obs]))
+        self._logger.debug("Backcalculated MNT Azi: " + str(azi_backcalc))
         # 7) Rotate around azi axis to find y
         My_obs = np.zeros((3, len(valid)))
         n = 0
         for obs in range(len(valid)):
             if valid[obs]:
                 rad = np.deg2rad(azi_backcalc[obs])
-                My_obs[:, n] = (V_perp[:, obs] * np.cos(rad)
-                                + (np.cross(Mz, V_perp[:, obs])) * np.sin(rad))
+                My_obs[:, n] = V_perp[:, obs] * np.cos(rad) + (np.cross(
+                    Mz, V_perp[:, obs])) * np.sin(rad)
                 n += 1
         My_obs = My_obs[:, :n]  # Trim the end!
-        self._logger.debug('b-axis estimates: ' + str(My_obs))
+        self._logger.debug("b-axis estimates: " + str(My_obs))
         # Average
         My = np.sum(My_obs, axis=1)
         My = My / np.linalg.norm(My)
         # Find residuals
-        My_sstd = np.sqrt(np.sum(np.rad2deg(np.arccos(np.dot(My, My_obs)))**2) / (n - 1))
-        self._logger.info('Solved MNT b axis: ' + str(np.round(My, 3).squeeze()) + ' | RMS: '
-                          + str(round(My_sstd * 3600, 1)) + ' asec (n=' + str(n) + ').')
+        My_sstd = np.sqrt(
+            np.sum(np.rad2deg(np.arccos(np.dot(My, My_obs)))**2) / (n - 1))
+        self._logger.info("Solved MNT b axis: " +
+                          str(np.round(My, 3).squeeze()) + " | RMS: " +
+                          str(round(My_sstd * 3600, 1)) + " asec (n=" +
+                          str(n) + ").")
         # 8) Cross product for last axis
         Mx = np.cross(My, Mz)
-        self._logger.info('MNT b cross c gives a: ' + str(np.round(Mx, 3).squeeze()) + '.')
+        self._logger.info("MNT b cross c gives a: " +
+                          str(np.round(Mx, 3).squeeze()) + ".")
         # Set the values
         self._MX_itrf2mnt = np.vstack((Mx, My, Mz))
         self._MX_mnt2itrf = self._MX_itrf2mnt.transpose()
@@ -1696,14 +1913,37 @@ class Alignment:
         self._Cnp = Cnp
 
         # Create logfile
-        log_path = self.data_folder / (apy_time.now().strftime('%Y-%m-%dT%H%M%S')
-                                       + '_Alignment_from_obs.csv')
-        with open(log_path, 'w') as logfile:
+        log_path = self.data_folder / (
+            apy_time.now().strftime("%Y-%m-%dT%H%M%S") +
+            "_Alignment_from_obs.csv")
+        with open(log_path, "w") as logfile:
             logwriter = csv_write(logfile)
-            logwriter.writerow(['Ma', 'Mb', 'Mc', 'Alt0', 'Cvd', 'Cnp', 'Mz_std', 'My_std',
-                                'Alt0_std', 'Cvd_std', 'Cnp_std'])
-            logwriter.writerow([Mx, My, Mz, alt0, Cvd, Cnp, Mz_sstd, My_sstd,
-                                alt0_sstd, Cvd_sstd, Cnp_sstd])
+            logwriter.writerow([
+                "Ma",
+                "Mb",
+                "Mc",
+                "Alt0",
+                "Cvd",
+                "Cnp",
+                "Mz_std",
+                "My_std",
+                "Alt0_std",
+                "Cvd_std",
+                "Cnp_std",
+            ])
+            logwriter.writerow([
+                Mx,
+                My,
+                Mz,
+                alt0,
+                Cvd,
+                Cnp,
+                Mz_sstd,
+                My_sstd,
+                alt0_sstd,
+                Cvd_sstd,
+                Cnp_sstd,
+            ])
 
         # Find residuals!
         compare = self.get_com_altaz_from_itrf_xyz(obs_in_itrf[:, valid])
@@ -1712,14 +1952,15 @@ class Alignment:
             if valid[i]:
                 d_alt = compare[0, n] - obs_data[i][3]
                 d_azi = compare[1, n] - obs_data[i][4]
-                self._logger.info('Residual for measurement ' + str(i + 1)
-                                  + ': Alt: ' + str(np.round(d_alt * 3600, 1))
-                                  + ' Azi: ' + str(np.round(d_azi * 3600, 1)) + ' (asec).')
+                self._logger.info("Residual for measurement " + str(i + 1) +
+                                  ": Alt: " + str(np.round(d_alt * 3600, 1)) +
+                                  " Azi: " + str(np.round(d_azi * 3600, 1)) +
+                                  " (asec).")
                 n += 1
             else:
-                self._logger.info('Residual for measurement ' + str(i + 1)
-                                  + ': Alt: ----  Azi: ---- .')
-        self._logger.info('Aligned.')
+                self._logger.info("Residual for measurement " + str(i + 1) +
+                                  ": Alt: ----  Azi: ---- .")
+        self._logger.info("Aligned.")
 
     def set_alignment_enu(self):
         """Set the MNT frame equal to the current ENU frame and zero all correction terms.
@@ -1728,7 +1969,7 @@ class Alignment:
             If the location is changed after set_alignment_enu() the MNT frame will not be updated
             automatically to coincide with the new ENU.
         """
-        assert self.is_located, 'No location'
+        assert self.is_located, "No location"
         self._MX_itrf2mnt = self._MX_itrf2enu
         self._MX_mnt2itrf = self._MX_enu2itrf
         self._Alt0 = 0
@@ -1770,7 +2011,8 @@ class Target:
 
         self._tle_line1 = None
         self._tle_line2 = None
-        self._skyfield_ts = sf_api.Loader(_system_data_dir, expire=False).timescale()
+        self._skyfield_ts = sf_api.Loader(_system_data_dir,
+                                          expire=False).timescale()
 
     @property
     def has_target(self):
@@ -1779,8 +2021,7 @@ class Target:
 
     @property
     def target_object(self):
-        """Astropy *SkyCoord* or Skyfield *EarthSatellite* or None: Get or set the target object.
-        """
+        """Astropy *SkyCoord* or Skyfield *EarthSatellite* or None: Get or set the target object."""
         return self._target
 
     @target_object.setter
@@ -1788,8 +2029,9 @@ class Target:
         if target is None:
             self._target = None
         else:
-            assert isinstance(target, self._allowed_types), \
-                'Must be None or of type ' + str(self._allowed_types)
+            assert isinstance(
+                target, self._allowed_types), "Must be None or of type " + str(
+                    self._allowed_types)
             self._target = target
 
     def set_target_from_ra_dec(self, ra, dec, start_time=None, end_time=None):
@@ -1801,7 +2043,7 @@ class Target:
             start_time (astropy *Time*, optional): The start time to set.
             end_time (astropy *Time*, optional): The end time to set.
         """
-        self.target_object = apy_coord.SkyCoord(ra, dec, unit='deg')
+        self.target_object = apy_coord.SkyCoord(ra, dec, unit="deg")
         self.set_start_end_time(start_time, end_time)
 
     def set_target_deep_by_name(self, name, start_time=None, end_time=None):
@@ -1884,8 +2126,8 @@ class Target:
         Raises:
             AssertionError: If the current target is not a Skyfield *EarthSatellite*.
         """
-        assert isinstance(self._target, sgp4.EarthSatellite), \
-            'Current target is not a Skyfield EarthSatellite.'
+        assert isinstance(self._target, sgp4.EarthSatellite
+                          ), "Current target is not a Skyfield EarthSatellite."
         return (self._tle_line1, self._tle_line2)
 
     def get_short_string(self):
@@ -1895,12 +2137,13 @@ class Target:
             str
         """
         if self._target is None:
-            return 'No target'
+            return "No target"
         elif isinstance(self._target, sgp4.EarthSatellite):
-            return 'TLE #' + str(self._target.model.satnum)
+            return "TLE #" + str(self._target.model.satnum)
         elif isinstance(self._target, apy_coord.SkyCoord):
-            return 'RA:' + str(round(self._target.ra.to_value('deg'), 2)) + DEG \
-                   + ' D:' + str(round(self._target.dec.to_value('deg'), 2)) + DEG
+            return ("RA:" + str(round(self._target.ra.to_value("deg"), 2)) +
+                    DEG + " D:" +
+                    str(round(self._target.dec.to_value("deg"), 2)) + DEG)
 
     def get_target_itrf_xyz(self, times=None):
         """Get the ITRF_xyz position vector from the centre of Earth to the EarthSatellite (in
@@ -1912,7 +2155,7 @@ class Target:
         Returns:
             numpy.ndarray: Shape (3,) if single input, shape (3,N) if array input.
         """
-        assert self.has_target, 'No target set.'
+        assert self.has_target, "No target set."
         if times is None:
             times = apy_time.now()
         if isinstance(self._target, apy_coord.SkyCoord):
@@ -1920,6 +2163,6 @@ class Target:
             return np.array(itrs.data.xyz)
         elif isinstance(self._target, sgp4.EarthSatellite):
             ts_time = self._skyfield_ts.from_astropy(times)
-            itrf_xyz = (self._target.ITRF_position_velocity_error(ts_time)[0]
-                        * apy_unit.au.in_units(apy_unit.m))
+            itrf_xyz = self._target.ITRF_position_velocity_error(
+                ts_time)[0] * apy_unit.au.in_units(apy_unit.m)
             return itrf_xyz
